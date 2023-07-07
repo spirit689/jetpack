@@ -34,6 +34,8 @@ armor:register_armor("jetpack:jetpack", {
     groups = {armor_torso=1, armor_legs=1, armor_heal=0, armor_use=800, physics_speed=-0.04, physics_gravity=0.04},
     armor_groups = {fleshy=15},
     damage_groups = {cracky=2, snappy=3, choppy=2, crumbly=1, level=2},
+    on_refill = technic.refill_RE_charge,
+    wear_represents = "technic_RE_charge"
 })
 
 minetest.register_craft({
