@@ -59,7 +59,7 @@ minetest.register_craft({
 minetest.register_craft({
 	output = "jetpack:motor",
     type = "shapeless",
-    recipe = {"technic:motor", "jetpack:blades"},
+    recipe = {"basic_materials:motor", "jetpack:blades"},
 })
 
 minetest.register_craft({
