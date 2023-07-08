@@ -1,267 +1,312 @@
 local modname = minetest.get_current_modname()
 local modpath = minetest.get_modpath(modname)
 
-local players = {}
+local sounds = {}
+local particles = {}
 local equip = {}
 
 -- hudbar id
 local HB_NAME = 'charge'
 -- update interval (charge, inventory and hudbar)
 local HB_DELTA = 1
--- jetpack charge. default 150000 = 10 min (250 EU/s)
-local CHARGE_MAX = 150000
+-- jetpack charge. default 150000 ~ 10 min (250 EU/s)
+local JET_CHARGE_MAX = 150000
+-- power consumption per second 
+local JET_POWER = 250
+
+-- jet state
+local JET_STATE_OFF = 0
+local JET_STATE_ON = 1
+
+local JET_STATE_UP = 1
+local JET_STATE_UP_SLOW = 2
+
+local JET_STATE_PRE_HOVER = 3
+local JET_STATE_HOVER = 4
+
+local JET_STATE_DOWN = 5
+local JET_STATE_DOWN_SLOW = 6
 
 -- recipes
-minetest.register_craftitem("jetpack:battery", {
-	description = "Jetpack battery",
-	inventory_image = "jetpack_battery.png",
+minetest.register_craftitem('jetpack:battery', {
+    description = 'Jetpack battery',
+    inventory_image = 'jetpack_battery.png',
 })
 
-minetest.register_craftitem("jetpack:blades", {
-	description = "Blades",
-	inventory_image = "jetpack_blade.png",
+minetest.register_craftitem('jetpack:blades', {
+    description = 'Blades',
+    inventory_image = 'jetpack_blade.png',
 })
 
-minetest.register_craftitem("jetpack:motor", {
-	description = "Electric engine",
-	inventory_image = "jetpack_engine.png",
+minetest.register_craftitem('jetpack:motor', {
+    description = 'Electric engine',
+    inventory_image = 'jetpack_engine.png',
 })
 
-armor:register_armor("jetpack:jetpack", {
-    description = "Jetpack",
-    texture = "jetpack_jetpack.png",
-    inventory_image = "jetpack_jetpack_inv.png",
-    groups = {armor_torso=1, armor_legs=1, armor_heal=0, armor_use=800, physics_speed=-0.04, physics_gravity=0.04},
-    armor_groups = {fleshy=15},
+armor:register_armor('jetpack:jetpack', {
+    description = 'Jetpack',
+    texture = 'jetpack_jetpack.png',
+    inventory_image = 'jetpack_jetpack_inv.png',
+    groups = {armor_torso=1, armor_heal=0, armor_use=0, physics_speed=-0.04, physics_gravity=0.04},
+    armor_groups = {fleshy=10},
     damage_groups = {cracky=2, snappy=3, choppy=2, crumbly=1, level=2},
     on_refill = technic.refill_RE_charge,
-    wear_represents = "technic_RE_charge"
+    wear_represents = 'technic_RE_charge'
 })
 
 minetest.register_craft({
-	output = "jetpack:battery",
-	recipe = {
-		{"technic:carbon_steel_ingot", "technic:fine_gold_wire", "technic:carbon_steel_ingot"},
-		{"technic:mv_cable", "technic:green_energy_crystal", "technic:mv_cable"},
-		{"technic:carbon_steel_ingot", "technic:fine_gold_wire", "technic:carbon_steel_ingot"},
-	},
+    output = 'jetpack:battery',
+    recipe = {
+        {'technic:carbon_steel_ingot', 'technic:fine_gold_wire', 'technic:carbon_steel_ingot'},
+        {'technic:mv_cable', 'technic:green_energy_crystal', 'technic:mv_cable'},
+        {'technic:carbon_steel_ingot', 'technic:fine_gold_wire', 'technic:carbon_steel_ingot'},
+    },
 })
 
 minetest.register_craft({
-	output = "jetpack:blades 2",
-	recipe = {
-		{"", "technic:carbon_steel_ingot", ""},
-		{"technic:carbon_steel_ingot", "technic:carbon_steel_ingot", "technic:carbon_steel_ingot"},
-		{"", "technic:carbon_steel_ingot", ""},
-	},
+    output = 'jetpack:blades 2',
+    recipe = {
+        {'', 'technic:carbon_steel_ingot', ''},
+        {'technic:carbon_steel_ingot', 'technic:carbon_steel_ingot', 'technic:carbon_steel_ingot'},
+        {'', 'technic:carbon_steel_ingot', ''},
+    },
 })
 
 minetest.register_craft({
-	output = "jetpack:motor",
-    type = "shapeless",
-    recipe = {"basic_materials:motor", "jetpack:blades"},
+    output = 'jetpack:motor',
+    type = 'shapeless',
+    recipe = {'basic_materials:motor', 'jetpack:blades'},
 })
 
 minetest.register_craft({
-	output = "jetpack:jetpack",
-	recipe = {
-		{"technic:carbon_steel_ingot", "jetpack:battery", "technic:carbon_steel_ingot"},
-		{"jetpack:motor", "technic:mv_cable", "jetpack:motor"},
-		{"", "", ""}
-	},
+    output = 'jetpack:jetpack',
+    recipe = {
+        {'technic:carbon_steel_ingot', 'jetpack:battery', 'technic:carbon_steel_ingot'},
+        {'jetpack:motor', 'technic:mv_cable', 'jetpack:motor'},
+        {'', '', ''}
+    },
 })
 
 -- register technic charge
-technic.register_power_tool('jetpack:jetpack', CHARGE_MAX)
+technic.register_power_tool('jetpack:jetpack', JET_CHARGE_MAX)
 
 -- register charge hudbar
-hb.register_hudbar(HB_NAME, 0xFFFFFF, 'Charge', { icon = 'jetpack_charge_icon.png', bgicon = 'jetpack_charge_bgicon.png',  bar = 'jetpack_charge_bar.png' }, 0, CHARGE_MAX, true)
+hb.register_hudbar(HB_NAME, 0xFFFFFF, 'Charge', { icon = 'jetpack_charge_icon.png', bgicon = 'jetpack_charge_bgicon.png',  bar = 'jetpack_charge_bar.png' }, 0, JET_CHARGE_MAX, true)
 
 local function jetpack_off (player)
     local playerName = player:get_player_name()
-    player:set_physics_override({gravity=1,speed=1})
-    if players[playerName].sndHandle then
-        minetest.sound_stop(players[playerName].sndHandle)
-        players[playerName].sndHandle = nil
+    local playerMeta = player:get_meta()
+    local sndHandle = sounds[playerName]
+
+    if sounds[playerName] then
+        minetest.sound_stop(sounds[playerName])
+        sounds[playerName] = nil
     end
-    players[playerName].engine = 0
+
+    if particles[playerName] then
+        minetest.delete_particlespawner(particles[playerName])
+        particles[playerName] = nil
+    end
+
+    playerMeta:set_int('jetpack:engine', JET_STATE_OFF)
+    playerMeta:set_int('jetpack:state', JET_STATE_OFF)
+
+    player:set_physics_override({gravity=1,speed=1})
+end
+
+local function jetpack_on (player)
+    local playerName = player:get_player_name()
+    local playerMeta = player:get_meta()
+
+    if not sounds[playerName] then
+        sounds[playerName] = minetest.sound_play('jetpack_loop', {
+            max_hear_distance = 8,
+            gain = 20.0,
+            object = player,
+            loop = true
+        })
+    end
+
+    if not particles[playerName] then
+        particles[playerName] = minetest.add_particlespawner({
+            amount = 10,
+            time = 0,
+            glow = 4,
+            texture = 'jetpack_particle.png',
+            attached = player,
+            minpos = {x=-0.2, y=0.8, z=-0.15},
+            maxpos = {x=0.2, y=0.8, z=-0.15},
+            minvel = {x=-1, y=-4, z=-1},
+            maxvel = {x=1, y=-4, z=1},
+            minacc = {x=0, y=-1, z=0},
+            minexptime = 0.2,
+            maxexptime = 0.2,
+            minsize = 4,
+            maxsize = 4
+        })
+    end
+
+    playerMeta:set_int('jetpack:engine', JET_STATE_ON)
+end
+
+local function jetpack_destroy (player)
+    local playerName = player:get_player_name()
+    local playerMeta = player:get_meta()
+
+    jetpack_off(player)
+
+    playerMeta:set_int('jetpack:charge', 0)
+    hb.hide_hudbar(player, HB_NAME)
+    equip[playerName] = nil
 end
 
 minetest.register_on_joinplayer(function(player)
-    local playerName = player:get_player_name()
-    local inv = minetest.get_inventory({type='detached', name=playerName..'_armor'})
+    -- todo
+    -- local playerName = player:get_player_name()
+    -- local inv = minetest.get_inventory({type='detached', name=playerName..'_armor'})
     hb.init_hudbar(player, HB_NAME, 0)
     hb.hide_hudbar(player, HB_NAME)
 end)
 
 -- set on equip
 armor:register_on_equip(function(player, index, stack)
-    local itemMeta = minetest.deserialize(stack:get_metadata())
+    local itemMeta = minetest.deserialize(stack:get_metadata()) or {}
     local playerName = player:get_player_name()
+    local playerMeta = player:get_meta()
+    local charge = itemMeta.charge or 0
+
     if stack:get_name() == 'jetpack:jetpack' then
-        equip[playerName] = true
-        players[playerName] = {
-            charge = 0,
-            engine = 0,
-            state = 0,
-            sndHandle = nil,
-            stackIndex = index
-        }
-        if itemMeta and itemMeta.charge then
-            players[playerName].charge = itemMeta.charge
-        end
-        hb.change_hudbar(player, HB_NAME, players[playerName].charge)
+        playerMeta:set_int('jetpack:charge', math.floor(charge))
+        playerMeta:set_int('jetpack:armor', index)
+        hb.change_hudbar(player, HB_NAME, charge)
         hb.unhide_hudbar(player, HB_NAME)
+        equip[playerName] = true
     end
 end)
 
 -- off if destroyed or unequipped
 armor:register_on_destroy(function(player, index, stack)
-    local playerName = player:get_player_name()
-    if stack:get_name() == 'jetpack:jetpack' then
-        equip[player:get_player_name()] = nil
-        hb.hide_hudbar(player, HB_NAME)
-        players[playerName].charge = 0
-        jetpack_off(player)
-    end
+    if stack:get_name() ~= 'jetpack:jetpack' then return end
+    jetpack_destroy(player)
 end)
 
 armor:register_on_unequip(function(player, index, stack)
-    local playerName = player:get_player_name()
-    if stack:get_name() == 'jetpack:jetpack' then
-        equip[player:get_player_name()] = nil
-        hb.hide_hudbar(player, HB_NAME)
-        players[playerName].stackIndex = -1
-        jetpack_off(player)
-    end
+    if stack:get_name() ~= 'jetpack:jetpack' then return end
+    jetpack_destroy(player)
 end)
 
 local time = 0
+local delta = 0
 minetest.register_globalstep(function(dtime)
-    local player, pos, velocity, node, inv, itemMeta, stack
-    local gameTime = minetest.get_gametime()
+    time = time + dtime
+    delta = delta + dtime
+    if time < 0.1 then return end
+
+    time = 0
+
+    local player, pos, node, playerMeta, controls, engine, currentCharge, state, velocity, inv, itemstack, stackIndex
 
     for name, val in pairs(equip) do
-        if players[name].charge == 0 then return end
-
         player = minetest.get_player_by_name(name)
+
+        if not player then return end
+        
+        playerMeta = player:get_meta()
+        engine = playerMeta:get_int('jetpack:engine')
+        currentCharge = playerMeta:get_int('jetpack:charge')
+        state = playerMeta:get_int('jetpack:state')
+
+        if currentCharge == 0 then return end
+
         pos = player:getpos()
-        velocity = player:get_player_velocity()
         node = minetest.get_node({x=pos.x,y=pos.y-1,z=pos.z})
+        controls = player:get_player_control()
+        velocity = player:get_velocity()
 
-        if player:get_player_control().jump then
-            -- fly up
-            if node.name == 'air' then
-                if players[name].state ~= 1 then
-                    if velocity.y <= 15 then
-                        if not players[name].sndHandle then
-                            players[name].sndHandle = minetest.sound_play("jetpack_loop", {
-                                max_hear_distance = 16,
-                                gain = 20.0,
-                                object = player,
-                                loop = true
-                            })
-                        end
-                        players[name].engine = 1
-                        player:set_physics_override({gravity=-0.3,speed=2})
-                        players[name].state = 1
-                    end
+        -- go up
+        if controls.jump and node.name == 'air' then
+            if engine == JET_STATE_OFF then
+                jetpack_on(player)
+            end
+        end
+
+        if engine == JET_STATE_ON then
+            -- flight control up & down, check if we are moving too fast
+            if controls.jump then
+                if state ~= JET_STATE_UP and state ~= JET_STATE_UP_SLOW then
+                    playerMeta:set_int('jetpack:state', JET_STATE_UP)
                 end
-                -- check if we're going too fast
-                if players[name].state == 1 and velocity.y > 15 then
+
+                if state == JET_STATE_UP and velocity.y < 15 then
+                    player:set_physics_override({gravity=-0.3,speed=2})
+                    playerMeta:set_int('jetpack:state', JET_STATE_UP_SLOW)
+                end
+
+                if state == JET_STATE_UP_SLOW and velocity.y > 15 then
                     player:set_physics_override({gravity=1})
-                    players[name].state = 0
+                    playerMeta:set_int('jetpack:state', JET_STATE_UP)
                 end
-            end
-        else
-            -- "hover" mode
-            if players[name].engine == 1 then
-                if players[name].state == 0 or players[name].state == 1 then
+            else
+                -- 'hover' mode
+                if state == JET_STATE_UP or state == JET_STATE_UP_SLOW then
+                    playerMeta:set_int('jetpack:state', JET_STATE_PRE_HOVER)
+                end
+
+                if state == JET_STATE_PRE_HOVER and math.abs(velocity.y) > 1 then
                     player:set_physics_override({gravity=0.3})
-                    players[name].state = 2
+                    playerMeta:set_int('jetpack:state', JET_STATE_HOVER)
                 end
-                if players[name].state == 2 and velocity.y < 1 then
+
+                if state == JET_STATE_HOVER and math.abs(velocity.y) < 1 then
                     player:set_physics_override({gravity=0})
-                    players[name].state = 3
+                    playerMeta:set_int('jetpack:state', JET_STATE_PRE_HOVER)
                 end
             end
-        end
-
-        -- fly down
-        if player:get_player_control().sneak then
-            if players[name].engine == 1 then
-                if players[name].state ~= 5 and players[name].gravity ~= 4 then
-                    player:set_physics_override({gravity=0.3})
-                    players[name].state = 4
+            
+            if controls.sneak then
+                if state ~= JET_STATE_DOWN and state ~= JET_STATE_DOWN_SLOW then
+                    playerMeta:set_int('jetpack:state', JET_STATE_DOWN)
                 end
             end
-        end
 
-        if players[name].engine == 1 then
-            -- add particles
-            if gameTime % 0.1 == 0 then
-                minetest.add_particle({
-                    pos = {
-                        x = pos.x - math.random()/3 + math.random()/3,
-                        y = pos.y + 0.7,
-                        z = pos.z - math.random()/3 + math.random()/3
-                    },
-                    vel = {x=0, y=0, z=0},
-                    acc = {x=0, y=-10, z=0},
-                    expirationtime = math.random()/6,
-                    size = math.random()+0.5,
-                    collisiondetection = true,
-                    vertical = false,
-                    texture = "jetpack_particle.png",
-                })
+            if state == JET_STATE_DOWN and velocity.y >= -10 then
+                player:set_physics_override({gravity=1})
+                playerMeta:set_int('jetpack:state', JET_STATE_DOWN_SLOW)
+            end
+        
+            if state == JET_STATE_DOWN_SLOW and velocity.y < -10 then
+                player:set_physics_override({gravity=-1})
+                playerMeta:set_int('jetpack:state', JET_STATE_DOWN)
             end
 
-            -- turn off
             if node.name ~= 'air' then
                 jetpack_off(player)
-                players[name].state = 0
-            end
-
-            -- slowdown if we're falling too fast
-            if players[name].state == 4 and velocity.y < -10 then
-                player:set_physics_override({gravity=-1})
-                players[name].state = 5
-            end
-            if players[name].state == 5 and velocity.y >= -10 then
-                player:set_physics_override({gravity=1})
-                players[name].state = 4
             end
         end
 
-        time = time + dtime
-        if time >= HB_DELTA then
-            if players[name].engine == 1 then
-                -- update charge
-                players[name].charge = players[name].charge - time * 250
-                if players[name].charge < HB_DELTA * 250 then
-                    player:set_physics_override({gravity=1,speed=1})
-                    if players[name].sndHandle then
-                        minetest.sound_stop(players[name].sndHandle)
-                        players[name].sndHandle = nil
-                    end
-                    players[name].charge = 0
+        if delta > HB_DELTA then
+            if engine == JET_STATE_ON then
+                currentCharge = currentCharge - delta * JET_POWER
+                if currentCharge < HB_DELTA * JET_POWER then
+                    -- ouch!
+                    jetpack_off(player)
+                    currentCharge = 0
                 end
+
+                playerMeta:set_int('jetpack:charge', currentCharge)
+
                 -- update item in inventory
-                inv = minetest.get_inventory({type='detached', name=player:get_player_name()..'_armor'})
-                stack = ItemStack('jetpack:jetpack')
-                itemMeta = {
-                    charge = players[name].charge
-                }
-                stack:set_metadata(minetest.serialize(itemMeta))
-                inv:set_stack('armor', players[name].stackIndex, stack)
-                player:get_inventory():set_stack('armor', players[name].stackIndex, stack)
-                hb.change_hudbar(player, HB_NAME, players[name].charge)
-                if players[name].charge == 0 then
-                    players[name].engine = 0
-                end
-            end
-            time = 0
-        end
+                inv = minetest.get_inventory({type='detached', name=name..'_armor'})
+                stackIndex = playerMeta:get_int('jetpack:armor')
 
+                itemstack = ItemStack('jetpack:jetpack')
+                itemstack:set_metadata(minetest.serialize({ charge = currentCharge }))
+                technic.set_RE_wear(itemstack, currentCharge, JET_CHARGE_MAX)
+
+                inv:set_stack('armor', stackIndex, itemstack)
+                hb.change_hudbar(player, HB_NAME, currentCharge)
+            end
+            delta = 0
+        end
     end
 end)
