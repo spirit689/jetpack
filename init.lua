@@ -167,11 +167,15 @@ local function jetpack_destroy (player)
 end
 
 minetest.register_on_joinplayer(function(player)
-    -- todo
-    -- local playerName = player:get_player_name()
-    -- local inv = minetest.get_inventory({type='detached', name=playerName..'_armor'})
+    local playerMeta = player:get_meta()
+    local engine = playerMeta:get_int('jetpack:engine')
+
     hb.init_hudbar(player, HB_NAME, 0)
     hb.hide_hudbar(player, HB_NAME)
+
+    if engine == JET_STATE_ON then
+        jetpack_on(player)
+    end
 end)
 
 -- set on equip
