@@ -5,13 +5,16 @@ local sounds = {}
 local particles = {}
 local equip = {}
 
+local m_gravity = player_monoids.gravity
+local m_speed = player_monoids.speed
+
 -- hudbar id
 local HB_NAME = 'charge'
 -- update interval (charge, inventory and hudbar)
 local HB_DELTA = 1
 -- jetpack charge. default 150000 ~ 10 min (250 EU/s)
 local JET_CHARGE_MAX = 150000
--- power consumption per second 
+-- power consumption per second
 local JET_POWER = 250
 
 -- jet state
@@ -21,7 +24,7 @@ local JET_STATE_ON = 1
 local JET_STATE_UP = 1
 local JET_STATE_UP_SLOW = 2
 
-local JET_STATE_PRE_HOVER = 3
+local JET_STATE_HOLD = 3
 local JET_STATE_HOVER = 4
 
 local JET_STATE_DOWN = 5
@@ -111,7 +114,8 @@ local function jetpack_off (player)
     playerMeta:set_int('jetpack:engine', JET_STATE_OFF)
     playerMeta:set_int('jetpack:state', JET_STATE_OFF)
 
-    player:set_physics_override({gravity=1,speed=1})
+    m_gravity:del_change(player, 'jetpack:gravity')
+    m_speed:del_change(player, 'jetpack:speed')
 end
 
 local function jetpack_on (player)
@@ -146,6 +150,8 @@ local function jetpack_on (player)
         })
     end
 
+    m_speed:add_change(player, 2, 'jetpack:speed')
+    playerMeta:set_int('jetpack:state', JET_STATE_HOLD)
     playerMeta:set_int('jetpack:engine', JET_STATE_ON)
 end
 
@@ -210,7 +216,7 @@ minetest.register_globalstep(function(dtime)
         player = minetest.get_player_by_name(name)
 
         if not player then return end
-        
+
         playerMeta = player:get_meta()
         engine = playerMeta:get_int('jetpack:engine')
         currentCharge = playerMeta:get_int('jetpack:charge')
@@ -231,53 +237,56 @@ minetest.register_globalstep(function(dtime)
         end
 
         if engine == JET_STATE_ON then
-            -- flight control up & down, check if we are moving too fast
+            -- check if we are moving too fast
+            if state == JET_STATE_UP_SLOW and velocity.y >= 15 then
+                m_gravity:del_change(player, 'jetpack:gravity')
+                state = JET_STATE_HOLD
+            end
+
+            if state == JET_STATE_DOWN_SLOW and velocity.y < -15 then
+                m_gravity:add_change(player, -1, 'jetpack:gravity')
+                state = JET_STATE_HOLD
+            end
+
+            -- flight control up & down
             if controls.jump then
-                if state ~= JET_STATE_UP and state ~= JET_STATE_UP_SLOW then
-                    playerMeta:set_int('jetpack:state', JET_STATE_UP)
+                if state == JET_STATE_HOLD and velocity.y < 15 then
+                    state = JET_STATE_UP
                 end
 
-                if state == JET_STATE_UP and velocity.y < 15 then
-                    player:set_physics_override({gravity=-0.3,speed=2})
-                    playerMeta:set_int('jetpack:state', JET_STATE_UP_SLOW)
-                end
-
-                if state == JET_STATE_UP_SLOW and velocity.y > 15 then
-                    player:set_physics_override({gravity=1})
-                    playerMeta:set_int('jetpack:state', JET_STATE_UP)
+                if state == JET_STATE_UP then
+                    m_gravity:add_change(player, -0.3, 'jetpack:gravity')
+                    state = JET_STATE_UP_SLOW
                 end
             else
-                -- 'hover' mode
-                if state == JET_STATE_UP or state == JET_STATE_UP_SLOW then
-                    playerMeta:set_int('jetpack:state', JET_STATE_PRE_HOVER)
-                end
+                if controls.sneak then
+                    if (state == JET_STATE_HOLD or state == JET_STATE_HOVER) and velocity.y > -15 then
+                        state = JET_STATE_DOWN
+                    end
 
-                if state == JET_STATE_PRE_HOVER and math.abs(velocity.y) > 1 then
-                    player:set_physics_override({gravity=0.3})
-                    playerMeta:set_int('jetpack:state', JET_STATE_HOVER)
-                end
+                    if state == JET_STATE_DOWN then
+                        m_gravity:del_change(player, 'jetpack:gravity')
+                        state = JET_STATE_DOWN_SLOW
+                    end
+                else
+                    -- 'hover' mode
+                    if math.abs(velocity.y) > 1 then
+                        if velocity.y > 0 then
+                            m_gravity:add_change(player, 0.1, 'jetpack:gravity')
+                        else
+                            m_gravity:add_change(player, -0.1, 'jetpack:gravity')
+                        end
+                        state = JET_STATE_HOVER
+                    end
 
-                if state == JET_STATE_HOVER and math.abs(velocity.y) < 1 then
-                    player:set_physics_override({gravity=0})
-                    playerMeta:set_int('jetpack:state', JET_STATE_PRE_HOVER)
-                end
-            end
-            
-            if controls.sneak then
-                if state ~= JET_STATE_DOWN and state ~= JET_STATE_DOWN_SLOW then
-                    playerMeta:set_int('jetpack:state', JET_STATE_DOWN)
+                    if state == JET_STATE_HOVER and math.abs(velocity.y) < 0.1 then
+                        m_gravity:add_change(player, 0, 'jetpack:gravity')
+                        state = JET_STATE_HOLD
+                    end
                 end
             end
 
-            if state == JET_STATE_DOWN and velocity.y >= -10 then
-                player:set_physics_override({gravity=1})
-                playerMeta:set_int('jetpack:state', JET_STATE_DOWN_SLOW)
-            end
-        
-            if state == JET_STATE_DOWN_SLOW and velocity.y < -10 then
-                player:set_physics_override({gravity=-1})
-                playerMeta:set_int('jetpack:state', JET_STATE_DOWN)
-            end
+            playerMeta:set_int('jetpack:state', state)
 
             if node.name ~= 'air' then
                 jetpack_off(player)
