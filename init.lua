@@ -242,8 +242,10 @@ minetest.register_globalstep(function(dtime)
     local player, pos, node, controls, engine, currentCharge, playerMeta, state, velocity
 
     for name, val in pairs(equip) do
-        player = minetest.get_player_by_name(name)
+        if not val then return end
+        if val.charge <= 0 then return end
 
+        player = minetest.get_player_by_name(name)
         if not player then return end
 
         engine = val.engine
