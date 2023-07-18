@@ -1,4 +1,4 @@
-[jetpack] Electric Jetpack v0.1.1
+[jetpack] Electric Jetpack v0.1.2
 
 This mod adds an electric jetpack to game.
 
@@ -31,6 +31,12 @@ Jetpack
 2. Place Jetpack into Battery Box to charge. 150000 EU by default gives 10 minutes of flight.
 3. Equip and press Space to fly up, press Shift to fly down. You also can equip helmet and boots/
 4. The limit of altitude does not exist, so... don't fall if the power went out)
+
+0.1.2
+- remove derecated player:getpos
+- player:meta merged into one variable
+- fix swap one jetpack with another in armor slot
+- the charge level should be correctly loaded when re-entering the game
 
 0.1.1
 - change flight algorithm
