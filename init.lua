@@ -166,6 +166,25 @@ local function jetpack_destroy (player)
     equip[playerName] = nil
 end
 
+local function jetpack_get_charge(playerName)
+    local inv = minetest.get_inventory({type='detached', name=playerName..'_armor'})
+    local itemstack = inv:get_stack('armor', equip[playerName].slot)
+    local itemMeta = minetest.deserialize(itemstack:get_metadata()) or {}
+    local currentCharge = itemMeta.charge or 0
+    return currentCharge
+end
+
+local function jetpack_set_charge(playerName, currentCharge)
+    local inv = minetest.get_inventory({type='detached', name=playerName..'_armor'})
+    local itemstack = inv:get_stack('armor', equip[playerName].slot)
+
+    itemstack:set_metadata(minetest.serialize({ charge = currentCharge }))
+    technic.set_RE_wear(itemstack, currentCharge, JET_CHARGE_MAX)
+
+    inv:set_stack('armor', equip[playerName].slot, itemstack)
+    equip[playerName].charge = currentCharge
+end
+
 minetest.register_on_joinplayer(function(player)
     hb.init_hudbar(player, HB_NAME, 0)
     hb.hide_hudbar(player, HB_NAME)
@@ -190,14 +209,7 @@ armor:register_on_equip(function(player, index, stack)
     }
 
     if state then
-        local inv = minetest.get_inventory({type='detached', name=playerName..'_armor'})
-
-        stack:set_metadata(minetest.serialize({ charge = state.charge }))
-        technic.set_RE_wear(stack, state.charge, JET_CHARGE_MAX)
-        inv:set_stack('armor', state.slot, stack)
-
-        equip[playerName].charge = state.charge
-
+        jetpack_set_charge(playerName, state.charge)
         if state.engine == JET_STATE_ON then
             jetpack_on(player)
         end
@@ -227,7 +239,7 @@ minetest.register_globalstep(function(dtime)
 
     time = 0
 
-    local player, pos, node, controls, engine, currentCharge, playerMeta, state, velocity, inv, itemstack, itemMeta
+    local player, pos, node, controls, engine, currentCharge, playerMeta, state, velocity
 
     for name, val in pairs(equip) do
         player = minetest.get_player_by_name(name)
@@ -308,11 +320,7 @@ minetest.register_globalstep(function(dtime)
 
         if delta > HB_DELTA then
             if engine == JET_STATE_ON then
-                inv = minetest.get_inventory({type='detached', name=name..'_armor'})
-                itemstack = inv:get_stack('armor', equip[name].slot)
-                itemMeta = minetest.deserialize(itemstack:get_metadata()) or {}
-
-                currentCharge = itemMeta.charge or 0
+                currentCharge = jetpack_get_charge(name)
                 currentCharge = currentCharge - delta * JET_POWER
 
                 if currentCharge < HB_DELTA * JET_POWER then
@@ -322,12 +330,8 @@ minetest.register_globalstep(function(dtime)
                 end
 
                 -- update item in inventory
-                itemstack:set_metadata(minetest.serialize({ charge = currentCharge }))
-                technic.set_RE_wear(itemstack, currentCharge, JET_CHARGE_MAX)
-
-                inv:set_stack('armor', equip[name].slot, itemstack)
+                jetpack_set_charge(name, currentCharge)
                 hb.change_hudbar(player, HB_NAME, currentCharge)
-                equip[name].charge = currentCharge
 
                 playerMeta = player:get_meta()
                 playerMeta:set_string('jetpack:armor', minetest.serialize(equip[name]))
