@@ -242,8 +242,8 @@ minetest.register_globalstep(function(dtime)
     local player, pos, node, controls, engine, currentCharge, playerMeta, state, velocity
 
     for name, val in pairs(equip) do
-        if not val then return end
-        if val.charge <= 0 then return end
+        if not val then goto jet_loop_skip end
+        if val.charge <= 0 then goto jet_loop_skip end
 
         player = minetest.get_player_by_name(name)
         if not player then return end
@@ -340,5 +340,7 @@ minetest.register_globalstep(function(dtime)
             end
             delta = 0
         end
+
+        ::jet_loop_skip::
     end
 end)
