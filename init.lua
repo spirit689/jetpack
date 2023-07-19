@@ -273,7 +273,7 @@ minetest.register_globalstep(function(dtime)
         if val.charge <= 0 then goto jet_loop_skip end
 
         player = minetest.get_player_by_name(name)
-        if not player then return end
+        if not player then goto jet_loop_skip end
 
         engine = val.engine
         state = val.state
