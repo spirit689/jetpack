@@ -185,9 +185,36 @@ local function jetpack_set_charge(playerName, currentCharge)
     equip[playerName].charge = currentCharge
 end
 
+local function jetpack_save_state(player)
+    local playerName = player:get_player_name()
+    local playerMeta = player:get_meta()
+    local state = ''
+
+    if equip[playerName] then
+        state = minetest.serialize(equip[playerName])
+    end
+
+    playerMeta:set_string('jetpack:armor', state)
+end
+
 minetest.register_on_joinplayer(function(player)
     hb.init_hudbar(player, HB_NAME, 0)
     hb.hide_hudbar(player, HB_NAME)
+end)
+
+minetest.register_on_leaveplayer(function(player)
+    jetpack_save_state(player)
+end)
+
+minetest.register_on_shutdown(function()
+    local player
+
+    for name, val in pairs(equip) do
+        player = minetest.get_player_by_name(name)
+        if player then
+            jetpack_save_state(player)
+        end
+    end
 end)
 
 -- set on equip
@@ -239,7 +266,7 @@ minetest.register_globalstep(function(dtime)
 
     time = 0
 
-    local player, pos, node, controls, engine, currentCharge, playerMeta, state, velocity
+    local player, pos, node, controls, engine, currentCharge, state, velocity
 
     for name, val in pairs(equip) do
         if not val then goto jet_loop_skip end
@@ -334,9 +361,6 @@ minetest.register_globalstep(function(dtime)
                 -- update item in inventory
                 jetpack_set_charge(name, currentCharge)
                 hb.change_hudbar(player, HB_NAME, currentCharge)
-
-                playerMeta = player:get_meta()
-                playerMeta:set_string('jetpack:armor', minetest.serialize(equip[name]))
             end
             delta = 0
         end
