@@ -1,3 +1,5 @@
+jetpack = {}
+
 local modname = minetest.get_current_modname()
 local modpath = minetest.get_modpath(modname)
 
@@ -9,13 +11,15 @@ local m_gravity = player_monoids.gravity
 local m_speed = player_monoids.speed
 
 -- hudbar id
-local HB_NAME = 'charge'
+jetpack.HB_NAME = 'jetpack:charge'
 -- update interval (charge, inventory and hudbar)
-local HB_DELTA = 1
+jetpack.HB_DELTA = 1
 -- jetpack charge. default 150000 ~ 10 min (250 EU/s)
-local JET_CHARGE_MAX = 150000
+jetpack.JET_CHARGE_MAX = 150000
 -- power consumption per second
-local JET_POWER = 250
+jetpack.JET_POWER = 250
+-- maximum vertical velocity in air
+jetpack.JET_MAX_VELOCITY = 5
 
 -- jet state
 local JET_STATE_OFF = 0
@@ -41,6 +45,16 @@ minetest.register_craftitem('jetpack:blades', {
     inventory_image = 'jetpack_blade.png',
 })
 
+minetest.register_craftitem('jetpack:cable', {
+    description = 'Cable',
+    inventory_image = 'jetpack_cable.png',
+})
+
+minetest.register_craftitem('jetpack:battery_core', {
+    description = 'Jetpack battery core',
+    inventory_image = 'jetpack_battery_core.png',
+})
+
 minetest.register_craftitem('jetpack:motor', {
     description = 'Electric engine',
     inventory_image = 'jetpack_engine.png',
@@ -52,26 +66,40 @@ armor:register_armor('jetpack:jetpack', {
     inventory_image = 'jetpack_jetpack_inv.png',
     groups = {armor_torso=1, armor_heal=0, armor_use=0, physics_speed=-0.04, physics_gravity=0.04},
     armor_groups = {fleshy=10},
-    damage_groups = {cracky=2, snappy=3, choppy=2, crumbly=1, level=2},
-    on_refill = technic.refill_RE_charge,
-    wear_represents = 'technic_RE_charge'
+    damage_groups = {cracky=2, snappy=3, choppy=2, crumbly=1, level=2}
+})
+
+minetest.register_craft({
+    output = 'jetpack:cable 3',
+    recipe = {
+        {'basic_materials:copper_wire', 'basic_materials:copper_wire', 'basic_materials:copper_wire'},
+    },
+})
+
+minetest.register_craft({
+    output = 'jetpack:battery_core',
+    recipe = {
+        {'jetpack:cable', 'basic_materials:copper_wire', 'jetpack:cable'},
+        {'basic_materials:energy_crystal_simple', 'default:diamond', 'basic_materials:energy_crystal_simple'},
+        {'jetpack:cable', 'basic_materials:copper_wire', 'jetpack:cable'},
+    },
 })
 
 minetest.register_craft({
     output = 'jetpack:battery',
     recipe = {
-        {'technic:carbon_steel_ingot', 'technic:fine_gold_wire', 'technic:carbon_steel_ingot'},
-        {'technic:mv_cable', 'technic:green_energy_crystal', 'technic:mv_cable'},
-        {'technic:carbon_steel_ingot', 'technic:fine_gold_wire', 'technic:carbon_steel_ingot'},
+        {'default:steel_ingot', 'basic_materials:gold_wire', 'default:steel_ingot'},
+        {'jetpack:cable', 'jetpack:battery_core', 'jetpack:cable'},
+        {'default:steel_ingot', 'basic_materials:gold_wire', 'default:steel_ingot'},
     },
 })
 
 minetest.register_craft({
     output = 'jetpack:blades 2',
     recipe = {
-        {'', 'technic:carbon_steel_ingot', ''},
-        {'technic:carbon_steel_ingot', 'technic:carbon_steel_ingot', 'technic:carbon_steel_ingot'},
-        {'', 'technic:carbon_steel_ingot', ''},
+        {'', 'default:steel_ingot', ''},
+        {'default:steel_ingot', 'default:steel_ingot', 'default:steel_ingot'},
+        {'', 'default:steel_ingot', ''},
     },
 })
 
@@ -84,19 +112,29 @@ minetest.register_craft({
 minetest.register_craft({
     output = 'jetpack:jetpack',
     recipe = {
-        {'technic:carbon_steel_ingot', 'jetpack:battery', 'technic:carbon_steel_ingot'},
-        {'jetpack:motor', 'technic:mv_cable', 'jetpack:motor'},
+        {'default:steel_ingot', 'jetpack:battery', 'default:steel_ingot'},
+        {'jetpack:motor', 'jetpack:cable', 'jetpack:motor'},
         {'', '', ''}
     },
 })
 
--- register technic charge
-technic.register_power_tool('jetpack:jetpack', JET_CHARGE_MAX)
+-- allow charging in machines
+local technic_enabled = minetest.get_modpath('technic');
+local elepower_enabled = minetest.get_modpath('elepower');
+
+if technic_enabled then
+    dofile(modpath .. '/technic.lua')
+elseif elepower_enabled then
+    dofile(modpath .. '/elepower.lua')
+else
+    dofile(modpath .. '/jetpack.lua')
+end
 
 -- register charge hudbar
-hb.register_hudbar(HB_NAME, 0xFFFFFF, 'Charge', { icon = 'jetpack_charge_icon.png', bgicon = 'jetpack_charge_bgicon.png',  bar = 'jetpack_charge_bar.png' }, 0, JET_CHARGE_MAX, true)
+hb.register_hudbar(jetpack.HB_NAME, 0xFFFFFF, 'Charge', { icon = 'jetpack_charge_icon.png', bgicon = 'jetpack_charge_bgicon.png',  bar = 'jetpack_charge_bar.png' }, 0, jetpack.JET_CHARGE_MAX, true)
 
-local function jetpack_off (player)
+-- end of flight
+jetpack.off = function (player)
     local playerName = player:get_player_name()
 
     if sounds[playerName] then
@@ -116,7 +154,8 @@ local function jetpack_off (player)
     m_speed:del_change(player, 'jetpack:speed')
 end
 
-local function jetpack_on (player)
+-- start lift up
+jetpack.on = function (player)
     local playerName = player:get_player_name()
 
     if equip[playerName] then
@@ -154,38 +193,39 @@ local function jetpack_on (player)
     m_speed:add_change(player, 2, 'jetpack:speed')
 end
 
-local function jetpack_destroy (player)
+-- completely disable
+jetpack.destroy = function (player)
     local playerName = player:get_player_name()
     local playerMeta = player:get_meta()
 
-    jetpack_off(player)
+    jetpack.off(player)
 
-    hb.hide_hudbar(player, HB_NAME)
+    hb.hide_hudbar(player, jetpack.HB_NAME)
 
     playerMeta:set_string('jetpack:armor', '')
     equip[playerName] = nil
 end
 
-local function jetpack_get_charge(playerName)
+-- get charge value
+jetpack.get_charge = function (playerName)
     local inv = minetest.get_inventory({type='detached', name=playerName..'_armor'})
     local itemstack = inv:get_stack('armor', equip[playerName].slot)
-    local itemMeta = minetest.deserialize(itemstack:get_metadata()) or {}
-    local currentCharge = itemMeta.charge or 0
-    return currentCharge
+    return jetpack.get_item_charge(itemstack);
 end
 
-local function jetpack_set_charge(playerName, currentCharge)
+-- set charge value
+jetpack.set_charge = function (playerName, currentCharge)
     local inv = minetest.get_inventory({type='detached', name=playerName..'_armor'})
     local itemstack = inv:get_stack('armor', equip[playerName].slot)
 
-    itemstack:set_metadata(minetest.serialize({ charge = currentCharge }))
-    technic.set_RE_wear(itemstack, currentCharge, JET_CHARGE_MAX)
+    jetpack.set_item_charge(itemstack, currentCharge);
 
     inv:set_stack('armor', equip[playerName].slot, itemstack)
     equip[playerName].charge = currentCharge
 end
 
-local function jetpack_save_state(player)
+-- save player state
+jetpack.save_state = function (player)
     local playerName = player:get_player_name()
     local playerMeta = player:get_meta()
     local state = ''
@@ -197,13 +237,14 @@ local function jetpack_save_state(player)
     playerMeta:set_string('jetpack:armor', state)
 end
 
-minetest.register_on_joinplayer(function(player)
-    hb.init_hudbar(player, HB_NAME, 0)
-    hb.hide_hudbar(player, HB_NAME)
-end)
+-- get player state
+jetpack.get_state = function (player)
+    local name = player:get_player_name()
+    return equip[name]
+end
 
 minetest.register_on_leaveplayer(function(player)
-    jetpack_save_state(player)
+    jetpack.save_state(player)
 end)
 
 minetest.register_on_shutdown(function()
@@ -212,7 +253,7 @@ minetest.register_on_shutdown(function()
     for name, val in pairs(equip) do
         player = minetest.get_player_by_name(name)
         if player then
-            jetpack_save_state(player)
+            jetpack.save_state(player)
         end
     end
 end)
@@ -221,12 +262,11 @@ end)
 armor:register_on_equip(function(player, index, stack)
     if stack:get_name() ~= 'jetpack:jetpack' then return end
 
-    local itemMeta = minetest.deserialize(stack:get_metadata()) or {}
     local playerName = player:get_player_name()
     local playerMeta = player:get_meta()
     local state = minetest.deserialize(playerMeta:get_string('jetpack:armor'))
 
-    local charge = itemMeta.charge or 0
+    local charge = jetpack.get_item_charge(stack)
 
     equip[playerName] = {
         charge = charge,
@@ -236,25 +276,31 @@ armor:register_on_equip(function(player, index, stack)
     }
 
     if state then
-        jetpack_set_charge(playerName, state.charge)
+        jetpack.set_charge(playerName, state.charge)
         if state.engine == JET_STATE_ON then
-            jetpack_on(player)
+            jetpack.on(player)
         end
     end
 
-    hb.change_hudbar(player, HB_NAME, equip[playerName].charge)
-    hb.unhide_hudbar(player, HB_NAME)
+    local hudstate = hb.get_hudbar_state(player, jetpack.HB_NAME)
+
+    if not hudstate then
+        hb.init_hudbar(player, jetpack.HB_NAME, equip[playerName].charge, jetpack.JET_CHARGE_MAX, false)
+    else
+        hb.change_hudbar(player, jetpack.HB_NAME, equip[playerName].charge)
+        hb.unhide_hudbar(player, jetpack.HB_NAME)
+    end
 end)
 
 -- off if destroyed or unequipped
 armor:register_on_destroy(function(player, index, stack)
     if stack:get_name() ~= 'jetpack:jetpack' then return end
-    jetpack_destroy(player)
+    jetpack.destroy(player)
 end)
 
 armor:register_on_unequip(function(player, index, stack)
     if stack:get_name() ~= 'jetpack:jetpack' then return end
-    jetpack_destroy(player)
+    jetpack.destroy(player)
 end)
 
 local time = 0
@@ -286,35 +332,36 @@ minetest.register_globalstep(function(dtime)
         -- go up
         if controls.jump and node.name == 'air' then
             if engine == JET_STATE_OFF then
-                jetpack_on(player)
+                jetpack.on(player)
             end
         end
 
         if engine == JET_STATE_ON then
             -- check if we are moving too fast
-            if state == JET_STATE_UP_SLOW and velocity.y >= 15 then
-                m_gravity:del_change(player, 'jetpack:gravity')
+            if state == JET_STATE_UP_SLOW and velocity.y >= jetpack.JET_MAX_VELOCITY then
+                -- m_gravity:del_change(player, 'jetpack:gravity')
+                m_gravity:add_change(player, 0.5, 'jetpack:gravity')
                 state = JET_STATE_HOLD
             end
 
-            if state == JET_STATE_DOWN_SLOW and velocity.y < -15 then
-                m_gravity:add_change(player, -1, 'jetpack:gravity')
+            if state == JET_STATE_DOWN_SLOW and velocity.y < -jetpack.JET_MAX_VELOCITY then
+                m_gravity:add_change(player, -0.5, 'jetpack:gravity')
                 state = JET_STATE_HOLD
             end
 
             -- flight control up & down
             if controls.jump then
-                if (state == JET_STATE_HOLD or state == JET_STATE_HOVER) and velocity.y < 15 then
+                if (state == JET_STATE_HOLD or state == JET_STATE_HOVER) and velocity.y < jetpack.JET_MAX_VELOCITY then
                     state = JET_STATE_UP
                 end
 
                 if state == JET_STATE_UP then
-                    m_gravity:add_change(player, -0.3, 'jetpack:gravity')
+                    m_gravity:add_change(player, -0.5, 'jetpack:gravity')
                     state = JET_STATE_UP_SLOW
                 end
             else
                 if controls.sneak then
-                    if (state == JET_STATE_HOLD or state == JET_STATE_HOVER) and velocity.y > -15 then
+                    if (state == JET_STATE_HOLD or state == JET_STATE_HOVER) and velocity.y > -jetpack.JET_MAX_VELOCITY then
                         state = JET_STATE_DOWN
                     end
 
@@ -343,24 +390,24 @@ minetest.register_globalstep(function(dtime)
             equip[name].state = state
 
             if node.name ~= 'air' then
-                jetpack_off(player)
+                jetpack.off(player)
             end
         end
 
-        if delta > HB_DELTA then
+        if delta > jetpack.HB_DELTA then
             if engine == JET_STATE_ON then
-                currentCharge = jetpack_get_charge(name)
-                currentCharge = currentCharge - delta * JET_POWER
+                currentCharge = jetpack.get_charge(name)
+                currentCharge = currentCharge - delta * jetpack.JET_POWER
 
-                if currentCharge < HB_DELTA * JET_POWER then
+                if currentCharge < jetpack.HB_DELTA * jetpack.JET_POWER then
                     -- ouch!
-                    jetpack_off(player)
+                    jetpack.off(player)
                     currentCharge = 0
                 end
 
                 -- update item in inventory
-                jetpack_set_charge(name, currentCharge)
-                hb.change_hudbar(player, HB_NAME, currentCharge)
+                jetpack.set_charge(name, currentCharge)
+                hb.change_hudbar(player, jetpack.HB_NAME, currentCharge)
             end
             delta = 0
         end

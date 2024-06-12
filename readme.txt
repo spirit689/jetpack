@@ -1,9 +1,8 @@
-[jetpack] Electric Jetpack v0.1.2
+[jetpack] Electric Jetpack v0.1.3
 
 This mod adds an electric jetpack to game.
 
 Depends:
-*technic
 *3d_armor
 *hudbars
 *player_monoids
@@ -11,26 +10,30 @@ Depends:
 How to use:
 1. Craft the necessary items
 
-Jetpack Battery
-| Carbon Steel Ingot |    Fine Gold Wire    | Carbon Steel Ingot |
-|     MV Cable       | Green Energy Crystal |      MV Cable      |
-| Carbon Steel Ingot |    Fine Gold Wire    | Carbon Steel Ingot |
+Cable (jetpack:cable)
+Jetpack Battery Core (jetpack:battery_core)
+Jetpack Battery (jetpack:battery)
+Blades (jetpack:blades)
+Electric Engine (jetpack:motor)
+Jetpack (jetpack:jetpack)
+Charging Capsule (jetpack:charging_capsule)
 
-Blades
-|                    |  Carbon Steel Ingot  |                    |
-| Carbon Steel Ingot |  Carbon Steel Ingot  | Carbon Steel Ingot |
-|                    |  Carbon Steel Ingot  |                    |
+2. Equip jetpack and use the charging capsules. 150000 EU by default gives 10 minutes of flight.
+This mod supports мodifications 'technic' and 'elepower'. In this case Charging Capsule not available,
+just put jetpack into charging device (Energy Cell or Battery Box).
 
-Electric Engine
-|   Electric Motor   |       Blades         |
+3. When jetpack is equipped and charged, hold Space to fly up. Release Space while in the air to hover, and hold Shift to fly down.
 
-Jetpack
-| Carbon Steel Ingot |    Jetpack Battery   | Carbon Steel Ingot |
-|  Electric Engine   |      MV Cable        |  Electric Engine   |
-
-2. Place Jetpack into Battery Box to charge. 150000 EU by default gives 10 minutes of flight.
-3. Equip and press Space to fly up, press Shift to fly down. You also can equip helmet and boots/
 4. The limit of altitude does not exist, so... don't fall if the power went out)
+
+0.1.3
+- recipes for crafting items have been changed
+- no more required dependency on 'technic' mod
+- added small charging capsules
+- added support for Energy Cell from 'elepower'
+- takeoff speed slightly reduced
+- fixed error with init hudbar on player join
+- fixed deprecated get_metadata
 
 0.1.2
 - remove derecated player:getpos
